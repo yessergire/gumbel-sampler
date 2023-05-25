@@ -1,11 +1,15 @@
 import networkx as nx
-from networkx.algorithms import bipartite, matching
+import numpy as np
+from networkx.algorithms import bipartite
+from scipy.optimize import linear_sum_assignment
+
 
 def get_partitions(G):
     tops, bottoms = bipartite.sets(G)
     top_nodes = list(sorted(tops))
     bottom_nodes = list(sorted(bottoms))
     return top_nodes, bottom_nodes
+
 
 def draw_bipartite(B, top_nodes=None, bottom_nodes=None, width=None, match=None, show_weights=True):
     if top_nodes is None or bottom_nodes is None:
@@ -30,7 +34,7 @@ def draw_bipartite(B, top_nodes=None, bottom_nodes=None, width=None, match=None,
             else:
                 width.append(1)
     
-    nx.draw(B, with_labels=True, pos=pos,width=width)
+    nx.draw_networkx(B, with_labels=True, pos=pos,width=width)
     if show_weights:
         labels = nx.get_edge_attributes(B,'weight')
         nx.draw_networkx_edge_labels(B, pos, edge_labels=labels)
@@ -45,14 +49,19 @@ def total_cost(B, match):
     return total
 
 
-def maximum_weight_full_matching(B, top_nodes, bottom_nodes):
-    weights = nx.get_edge_attributes(B,'weight')
+def get_biadjacency_matrix(B, top_nodes, maximum=False):
+  biadjacency = bipartite.biadjacency_matrix(B, row_order=top_nodes)
+  biadjacency_array = biadjacency.toarray()
+  inf_indecies = (biadjacency_array == 0)
+  if maximum:
+    biadjacency_array = biadjacency.max() - biadjacency_array
+  biadjacency_array[inf_indecies] = np.inf
+  return biadjacency_array
 
-    max_value = max(weights.values())
-    min_weights = {key:(max_value-value) for (key, value) in weights.items()}
 
-    min_B = B.copy()
-    nx.set_edge_attributes(min_B, min_weights, 'weight')
-    match = bipartite.matching.minimum_weight_full_matching(min_B, top_nodes=top_nodes)
-    match = [(v,match[v]) for v in top_nodes if v in match.keys()]
-    return match
+def weight_full_matching(B, top_nodes, bottom_nodes, maximum=False):
+    biadjacency = get_biadjacency_matrix(B, top_nodes=top_nodes, maximum=maximum)
+    match = linear_sum_assignment(biadjacency)
+    match_t = [(top_nodes[match[0][i]], bottom_nodes[match[1][i]])  for i in range(len(match[0]))]
+    return match_t
+
