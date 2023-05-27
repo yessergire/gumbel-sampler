@@ -61,7 +61,5 @@ def get_biadjacency_matrix(B, top_nodes, maximum=False):
 
 def weight_full_matching(B, top_nodes, bottom_nodes, maximum=False):
     biadjacency = get_biadjacency_matrix(B, top_nodes=top_nodes, maximum=maximum)
-    match = linear_sum_assignment(biadjacency)
-    match_t = [(top_nodes[match[0][i]], bottom_nodes[match[1][i]])  for i in range(len(match[0]))]
-    return match_t
-
+    left, right = linear_sum_assignment(biadjacency)
+    return list(zip(left, right))
