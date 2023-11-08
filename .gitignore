@@ -5,3 +5,7 @@ __pycache__
 buildtree
 build
 *pdf
+*npy
+*.so
+*.c
+files
