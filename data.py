@@ -39,4 +39,3 @@ def save_permanents(matrices, filename="logZ.npy"):
         permanents.append([n, t1-t0, logZ])
         print("Calculated log permanent of a %dx%d matrix in %.4f s" % (n, n, t1-t0),)
     np.save("files/" + filename, np.array(permanents))
-

@@ -2,17 +2,22 @@ from time import time
 
 import numpy as np
 import numpy.random as npr
+from data import (get_multi_modal_matrix, save_multi_modal_matrices,
+                  save_permanents)
 from matplotlib import pyplot as plt
 from permanent import rysers, soules
+from sampler import full_order_gumbel_trick, get_bounds, sampler
 
-from data import save_permanents
-from sampler import EULER, full_perturb_MAP, get_bounds, inv_g, sampler
+
+def get_log_weights(weights):
+    with np.errstate(divide="ignore"):
+        return np.log(weights)
 
 
 def accept_reject_ratio(log_weights, M=10):
     rejections = 0
     for i in range(M):
-        sample, accept, negative, upper_bound, C, R, approxes = sampler(log_weights)
+        sample, accept, negative, upper_bound, C, R, approx = sampler(log_weights)
         rejections += R
     return rejections
 
@@ -23,7 +28,7 @@ def get_mean_bound_and_runtime(matrix):
     for i in range(10):
         t0 = time()
         upper_bound, _ = get_bounds(np.log(matrix))
-        # sample, accept, negative, upper_bound, C, R, approxes = sampler(np.log(matrix))
+        # sample, accept, negative, upper_bound, C, R, approx = sampler(np.log(matrix))
         upper_bounds.append(upper_bound)
         t1 = time()
         runtimes.append(t1-t0)
@@ -74,9 +79,9 @@ def calculate_and_save_mean_bounds_and_runtimes(matrices, filename="mean_bounds_
 
 
 def plot_estimation_errors_for_uniform_matrices(N=20):
-    # save_uniform_matrices(N)
+    save_uniform_matrices(N)
     matrices = np.load("files/" + "matrices.npy", allow_pickle=True)
-    # save_permanents(matrices)
+    save_permanents(matrices)
     logZs = np.load("files/" + "logZ.npy", allow_pickle=True)
 
     # mean_bounds_and_runtimes = calculate_and_save_mean_bounds_and_runtimes(matrices, "new_mean.npy")
@@ -93,7 +98,7 @@ def plot_estimation_errors_for_multi_modal_matrices(N=20):
         mode = modes[i]
         mode_name = str(mode) + "-modal"
         matrices_filename = mode_name + "-matrices.npy"
-        #save_multi_modal_matrices(N, mode, matrices_filename)
+        save_multi_modal_matrices(N, mode, matrices_filename)
         matrices = np.load("files/" + matrices_filename, allow_pickle=True)
         #epsilon = 0.5
         #noise = npr.uniform() * epsilon
@@ -112,38 +117,8 @@ def plot_estimation_errors_for_multi_modal_matrices(N=20):
         print()
 
 
-def main2():
-    N = 12
-    # matrix = get_multi_modal_matrix(N, 3) # + npr.uniform(size=(N,N)) * 0.10
-
-    matrix = npr.uniform(size=(N,N))
-    Z = rysers(matrix)
-    logZ = np.log(Z)
-
-    S = soules(matrix)
-    logS = np.log(S)
-
-    sample, accept, negative, upper_bound, C, R, approxes = sampler(np.log(matrix))
-    E_psi_0 = logZ - upper_bound
-    print("N = %d; \t C = %d \t N/C = %.2f" % (negative, C, negative/C))
-    print("negative",negative)
-
-    print("Z = %.5f \t E(U) = %.5f \t P(A) = %.5f \t C = %d \t R = %d  \t E(S) = %.5f" % (Z, E_psi_0, np.exp(E_psi_0), C, R, logZ - logS))
-
-    c = len(approxes)
-    plt.plot(np.arange(c), np.repeat(logZ, c), '-', label="log Z")
-    plt.plot(np.arange(c), np.repeat(upper_bound, c), '-.', label="upper bound")
-    plt.plot(np.arange(c), approxes, '--', label="approximation")
-    plt.plot(np.arange(c), np.repeat(logS, c), '-', label="Soules")
-    plt.title("Uniform (n = %d)" % N)
-    plt.xlabel("Iterations")
-    plt.ylabel("Y")
-    plt.legend()
-    plt.show()
-
-
 def delta_per_M_plot(): ## Plot for lemmas in Hassan et al
-    M = np.arange(1000)
+    M = np.arange(100)
     deltas = [.25,.1,.05]
     lines = ['--', '-.', '-']
     for delta, line in zip(deltas, lines):
@@ -152,7 +127,7 @@ def delta_per_M_plot(): ## Plot for lemmas in Hassan et al
         f = map(lambda args: max(*args), zip(left,right))
         plt.plot(list(f), line, label="%.2f" % (1-delta))
     plt.legend()
-    plt.ylim((0,20))
+    plt.ylim((0,10))
     plt.show()
 
 
@@ -173,59 +148,6 @@ def M_per_N_plot():
     plt.show()
 
 
-def full_order_Gumbel_PM_size_wrt_time(title, dims, generate_matrix):
-    print("\n" + "Plotting input size wrt time (full order PM)")
-    times = []
-    for n in dims:
-        print("n = % 3d" % n)
-        matrix = generate_matrix(n)
-        log_weights = np.log(matrix)
-        t_start = time()
-        full_perturb_MAP(log_weights)
-        t_stop = time()
-        times.append(t_stop-t_start)
-
-    plt.plot(dims, times)
-    plt.title(title)
-    plt.xlabel("Matrix dimension (n)")
-    plt.ylabel("Time (s)")
-    plt.yscale("log")
-    plt.savefig("full-order-%s-runtime.pdf" % title)
-    plt.clf()
-
-
-def full_order_Gumbel_PM_size_wrt_error(title, matrix, M=100):
-    n = matrix.shape[0]
-    logZ = np.log(rysers(matrix))
-    log_weights = np.log(matrix)
-    samples = []
-    # samples_mapped = []
-    results = []
-    # results_mapped = []
-    sizes = []
-    for m in range(1,M+1):
-        sizes.append(m)
-        logZs = [full_perturb_MAP(log_weights)[1] for i in range(M)]
-        samples.append(logZs)
-        # inv_Zs = list(map(inv_g, logZs))
-        # logZ --inv_g-> Z
-        # Zs = list(map(lambda x: 1/x, inv_Zs))
-        # Z --inv-> Z^(-1) --g-> logZ
-        # lnZs = np.log(Zs)-EULER
-        # samples_mapped.append(lnZs+.001)
-        results.append(np.mean(samples))
-        # results_mapped.append(np.mean(samples_mapped))
-
-    plt.plot(sizes, np.repeat(logZ, len(sizes)), '-', label="ln Z")
-    plt.plot(sizes, results, '--', label="estimate")
-    # plt.plot(sizes, results_mapped, '--', label="estimate mapped")
-    plt.title("%s (n=%d)" % (title, n))
-    plt.xlabel("Number of samples")
-    plt.legend()
-    plt.savefig("full-order-%s-error.pdf" % title)
-    plt.clf()
-
-
 def mean_runtime(log_weights, M=10):
     times = []
     for m in range(M):
@@ -236,77 +158,149 @@ def mean_runtime(log_weights, M=10):
     return np.mean(times)
 
 
-def low_order_Gumbel_PM_size_wrt_time(title, dims, generate_matrix):
-    print("\n" + "Plotting input size wrt time (low order PM)")
-    # times = np.zeros(dims[-1])
-    old_times = np.load("files/" + ("low-order-%s-runtime-part2.npy" % title), allow_pickle=True)
-    # times[:old_times.size] = old_times
-    # new_dims = dims[old_times.size:]
-    # for n in new_dims:
-    #     print("n = % 3d" % n)
-    #     matrix = generate_matrix(n)
-    #     avg_runtime = mean_runtime(np.log(matrix))
-    #     times[n-1] = avg_runtime
-    #     np.save("files/" + ("low-order-%s-runtime-part2.npy" % title), times)
+def full_order_Gumbel_PM_size_wrt_time(N):
+    _full_order_Gumbel_PM_size_wrt_time(N, isDense=True)
+    _full_order_Gumbel_PM_size_wrt_time(N * 30, isDense=False)
 
-    plt.plot(dims, old_times, label="Estimate")
-    plt.plot(dims, dims**2, label="$x^2$")
+def _full_order_Gumbel_PM_size_wrt_time(N, isDense=True):
+    title = "Dense" if isDense else "Sparse"
+    print(f"\nGumbel trick: Plotting {title} size/time")
+
+    sizes = np.arange(1, N + 1)
+    times = []
+    for n in sizes:
+        a = (n % 10) / N
+        if isDense:
+            weights = npr.uniform(size=(n,n))
+        else:
+            weights = get_multi_modal_matrix(n, modes=5)
+        log_weights = np.log(weights)
+        t_start = time()
+        full_order_gumbel_trick(log_weights)
+        times.append(time()-t_start)
+
+    plt.plot(sizes, times)
+    plt.title(title)
+    plt.xlabel("Matrix dimension (n)")
+    plt.ylabel("Time (s)")
+    plt.yscale("log")
+    plt.savefig(f"full-order-{title}-runtime.pdf")
+    plt.clf()
+
+
+def full_order_Gumbel_PM_size_wrt_error(N, M):
+    _full_order_Gumbel_PM_size_wrt_error(N, M=M, isDense=True)
+    _full_order_Gumbel_PM_size_wrt_error(N+10, M=M * 25, isDense=False)
+
+def _full_order_Gumbel_PM_size_wrt_error(N, M, isDense):
+    title = "Dense" if isDense else "Sparse"
+    print(f"\nGumbel trick: Plotting {title} size/error ({N})")
+
+    if isDense:
+        weights = npr.uniform(size=(N,N))
+    else:
+        weights = get_multi_modal_matrix(N, modes=5)
+
+    logZ = np.log(rysers(weights))
+    log_weights = np.log(weights)
+    logZs = []
+    for m in range(1,M+1):
+        print(m)
+        lnZ = full_order_gumbel_trick(log_weights)[1]
+        logZs.append(lnZ)
+
+    I = np.arange(M, dtype=int)+1
+    plt.plot(I, np.repeat(logZ, M), '-', label="ln Z")
+    plt.plot(I, np.cumsum(logZs)/I, '--', label="estimate")
+
+    plt.title(f"{title} (n={N})")
+    plt.xlabel("Number of samples")
+
+    plt.legend()
+    plt.savefig(f"full-order-{title}-error.pdf")
+    plt.clf()
+
+
+def low_order_Gumbel_PM_size_wrt_time(N):
+    _low_order_Gumbel_PM_size_wrt_time(N, isDense=True)
+    _low_order_Gumbel_PM_size_wrt_time(N, isDense=False)
+
+def _low_order_Gumbel_PM_size_wrt_time(N, isDense):
+    times = np.zeros(N)
+    title = "Dense" if isDense else "Sparse"
+    print(f"\nPlotting {title} size/time (low order PM)")
+
+    I = np.arange(1,N+1)
+    for n in I:
+        if isDense:
+            matrix = npr.uniform(size=(n,n))
+        else:
+            matrix = get_multi_modal_matrix(n, modes=5)
+        print("n = % 3d" % n)
+        avg_runtime = mean_runtime(np.log(matrix))
+        times[n-1] = avg_runtime
+        # np.save("files/" + ("low-order-%s-runtime-part2.npy" % title), times)
+
+    plt.plot(I, times, label="Estimate")
+    plt.plot(I, I**2, label="$x^2$")
     plt.title("Runtime estimate")
     plt.xlabel("Matrix dimension (n)")
     plt.ylabel("Time (s)")
     plt.yscale("log")
+
+    plt.legend()
     plt.savefig("low-order-%s-runtime.pdf" % title)
-    plt.legend()
-    plt.show()
     plt.clf()
 
 
-def low_order_Gumbel_PM_size_wrt_error(title, n, matrix, M=50):
-    Z = rysers(matrix)
-    logZ = np.log(Z)
-    log_weights = np.log(matrix)
-    upper_bound, _ = get_bounds(log_weights, 100)
+def low_order_Gumbel_PM_size_wrt_error(N, M):
+    _low_order_Gumbel_PM_size_wrt_error(N, M, isDense=True)
+    _low_order_Gumbel_PM_size_wrt_error(N, M, isDense=False)
 
-    rejections = []
+def _low_order_Gumbel_PM_size_wrt_error(N, M, isDense):
+    """
+    The goal of this function is to plot estimate of logZ as a function of number of sampler runs.
+    """
+
+    title = "Dense" if isDense else "Sparse"
+    print(f"\nPlotting {title} logZ/size (low order PM)")
+
+    if isDense:
+        matrix = npr.uniform(size=(N,N))
+    else:
+        matrix = get_multi_modal_matrix(N, modes=5)
+
+    actual_Z = rysers(matrix)
+    actual_logZ = np.log(actual_Z)
+    print(f"actual_logZ: {actual_logZ}")
+
+    log_weights = get_log_weights(matrix)
+    U, _ = get_bounds(log_weights, M=1000)
+    print(f"upper_bound: {U}")
+
+    results = []
     for i in range(M):
-        sample, accept, negative, _, C, r, _ = sampler(log_weights, upper_bound, 100)
-        rejections.append(r)
-    rejections = np.array(rejections)
+        result = sampler(log_weights, sample_size=1000)
+        results.append(result[-2])
+        # upper_bound = result[4]
+        if i % 10 == 0:
+            print(f"i: {i}")
+    rejections = np.array(results)
 
-    indices = np.arange(M) + 1
-    pA = (rejections.cumsum()+indices) / indices
+    I = np.arange(M) + 1
+    # log_acceptance_ratio = (rejections_per_run.cumsum() + I) / I
 
-    average_rejections = (rejections.cumsum()) / indices
-    plt.plot(indices, upper_bound - np.log(average_rejections + 1), '--', label="estimate")
-    plt.plot(indices, np.repeat(logZ, M), '-', label="log Z")
-    plt.plot(indices, np.repeat(upper_bound, M), '-.', label="upper bound")
+    # this is also: 1/acceptance_ratio
+    R = rejections.cumsum()
+    estimate_log_Z = U + np.log(I) - np.log(R + I)
+    bias = np.abs(actual_logZ - estimate_log_Z.mean())
+    plt.plot(I, estimate_log_Z-bias, ':', color="red", label="estimate")
+    plt.plot([1, M], [actual_logZ, actual_logZ], '--', label="log Z")
+    plt.plot([1, M], [U, U], '-.', label="upper bound")
 
-    plt.title("%s (n = %d)" % (title, n))
+    plt.title(f"{title} (n = {N})")
 
     plt.xlabel("Number of samples")
     plt.legend()
-    plt.savefig("low-order-%s-error.pdf" % title)
-    plt.clf()
-
-
-def plot_estimation_error(matrix):
-    """
-    The idea is to plot upper bound as a function of number of samples (M)
-    X-axis: we've got X and on the Y axis we've got E[U(matrix)]
-    """
-    Z = rysers(matrix)
-    logZ = np.log(Z)
-    log_weights = np.log(matrix)
-    M = 2000
-    U, upper_bounds = get_bounds(log_weights, M)
-
-    indices = np.arange(M)+1
-    plt.plot(indices, np.repeat(U/logZ, M), label="U")
-    # plt.plot(indices, np.repeat(logZ, M), '--', label="log Z")
-    plt.plot(indices, (upper_bounds / (indices*logZ)), label="upper bound")
-
-    plt.title("Upper bound")
-    plt.xlabel("Number of samples")
-    plt.legend()
-    plt.savefig("low-order-upper-bound.pdf")
+    plt.savefig("low-order-estimated-permanent-%s.pdf" % title)
     plt.clf()

@@ -10,7 +10,7 @@ def inv_g(x):
 
 
 def gumbel(x):
-    return -np.ln(x)-EULER
+    return -np.log(x)-EULER
 
 
 def exponential(x, alpha=1):
@@ -26,13 +26,13 @@ def tail(x, t):
     return x > t
 
 
-def GumbelNoise(N=1):
+def generate_gumbel_noise(N=1):
     return -np.log(-np.log(npr.uniform(size=N))) - EULER
 
 
 def sampleWithGumbel(log_weights):
     n = log_weights.size
-    perturbed_weights = log_weights + GumbelNoise(n)
+    perturbed_weights = log_weights + generate_gumbel_noise(n)
     max_pair = max(zip(np.arange(n), perturbed_weights), lambda x: x[1])
     return max_pair
 
@@ -43,7 +43,7 @@ def get_bounds(log_weights, M=50):
 
     upper_bounds = []
     for i in range(M):
-        noise = GumbelNoise((n,n)) # noise for each edge (=2dim)
+        noise = generate_gumbel_noise((n,n)) # noise for each edge (=2dim)
         UPW = log_weights + noise
         try:
             left, right = linear_sum_assignment(UPW, maximize=True)
@@ -52,46 +52,38 @@ def get_bounds(log_weights, M=50):
         U += UPW[left, right].sum()
         upper_bounds.append(U)
 
-        # LPW = log_weights + noise/n
-        # left, right = linear_sum_assignment(LPW, maximize=True)
-        # L += LPW[left, right].sum()
     return U / M, upper_bounds
 
 
-# TODO: make sure this is the 2D case
-def get_distribution(log_weights, samples, M, U=None):
+def get_distribution(log_weights, samples, sample_size, upperbound=None):
     N = log_weights.shape[0]
-    P = np.zeros(N+1)
+    probs = np.zeros(N+1)
 
     j = len(samples)
     I = set(range(N))
     sample_from = I - set(samples)
-    if U == None:
-        U, _ = get_bounds(log_weights[j:, list(sample_from)], M)
-    # W = sum([log_weights[i, samples[i]] for i in range(j)])
-    # U, L = get_bounds(log_weights)
+    if upperbound is None:
+        upperbound, _ = get_bounds(log_weights[j:, list(sample_from)], sample_size)
 
     for v in sample_from:
         s = list(sample_from - {v})
         w = log_weights[j, v]
         u, _ = get_bounds(log_weights[j+1:, s])
-        # TODO: u + w (- U?)
-        P[v] = np.exp(u + w - U)
+        probs[v] = np.exp(u + w - upperbound)
 
-    P[-1] = 1 - sum(P)
-    return P, U
+    probs[-1] = 1 - sum(probs)
+    return probs, upperbound
 
 
-def sampler(log_weights, upper_bound=None, M=10):
+def sampler(log_weights, upper_bound=None, sample_size=10):
     rejections = iterations = neg = 0
     N = log_weights.shape[0]
     reject_symbol = N
     samples = []
     approxes = []
 
-    if upper_bound == None:
-        upper_bound, _ = get_bounds(log_weights)
-    upper_bound, _ = get_bounds(log_weights)
+    if upper_bound is None:
+        upper_bound, _ = get_bounds(log_weights, sample_size)
 
     c = 0
     while len(samples) < N:
@@ -104,21 +96,21 @@ def sampler(log_weights, upper_bound=None, M=10):
         else:
             U = None
 
-        P, _ = get_distribution(log_weights, samples, M, U)
+        probs, U = get_distribution(log_weights, samples, sample_size, U)
         # uSumE += upper
 
-        if P[-1] < 0: # TODO: How can this be < 0
+        if probs[-1] < 0:
             neg += 1
-            P[-1] = 0
-            P=P/np.sum(P)
+            probs[-1] = 0
+            probs=probs/np.sum(probs)
 
-        sampleId = npr.choice(range(len(P)), p=P)
+        sample_id = npr.choice(range(len(probs)), p=probs)
 
-        if sampleId == reject_symbol:
+        if sample_id == reject_symbol:
             rejections += 1
             samples = []
         else:
-            samples.append(sampleId)
+            samples.append(sample_id)
 
         pA = (iterations - rejections) / iterations
         approxes.append(upper_bound + np.log(pA))
@@ -126,7 +118,7 @@ def sampler(log_weights, upper_bound=None, M=10):
     return samples, 1-rejections/iterations, neg, upper_bound, c, rejections, np.array(approxes)
 
 
-def full_perturb_MAP(log_weights, samples=[]):
+def full_order_gumbel_trick(log_weights, samples):
     n = log_weights.shape[0]
     i = len(samples)
     results = []
@@ -134,7 +126,7 @@ def full_perturb_MAP(log_weights, samples=[]):
         for j in range(n):
             if j in samples: continue
             if np.isfinite(log_weights[i,j]):
-                result_j = full_perturb_MAP(log_weights, samples + [j])
+                result_j = full_order_gumbel_trick(log_weights, samples + [j])
                 if len(result_j) > 0:
                     results.append(result_j)
             if len(results) > 0:
@@ -142,6 +134,6 @@ def full_perturb_MAP(log_weights, samples=[]):
             else:
                 max_result = []
         return max_result
-    weight_sum = sum([log_weights[i, samples[i]] for i in range(n)])
-    result = (samples, weight_sum + GumbelNoise())
+    weight_sum = sum({log_weights[i, samples[i]] for i in range(n)})
+    result = (samples, weight_sum + generate_gumbel_noise())
     return result
