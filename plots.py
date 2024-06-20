@@ -3,7 +3,7 @@ from time import time
 import numpy as np
 import numpy.random as npr
 from data import (get_multi_modal_matrix, save_multi_modal_matrices,
-                  save_permanents)
+                  save_permanents, save_uniform_matrices)
 from matplotlib import pyplot as plt
 from permanent import rysers, soules
 from sampler import full_order_gumbel_trick, get_bounds, sampler
@@ -176,7 +176,7 @@ def _full_order_Gumbel_PM_size_wrt_time(N, isDense=True):
             weights = get_multi_modal_matrix(n, modes=5)
         log_weights = np.log(weights)
         t_start = time()
-        full_order_gumbel_trick(log_weights)
+        full_order_gumbel_trick(log_weights, [])
         times.append(time()-t_start)
 
     plt.plot(sizes, times)
@@ -184,17 +184,17 @@ def _full_order_Gumbel_PM_size_wrt_time(N, isDense=True):
     plt.xlabel("Matrix dimension (n)")
     plt.ylabel("Time (s)")
     plt.yscale("log")
-    plt.savefig(f"full-order-{title}-runtime.pdf")
+    plt.savefig(f"img/full-order-{title}-runtime.pdf")
     plt.clf()
 
 
 def full_order_Gumbel_PM_size_wrt_error(N, M):
     _full_order_Gumbel_PM_size_wrt_error(N, M=M, isDense=True)
-    _full_order_Gumbel_PM_size_wrt_error(N+10, M=M * 25, isDense=False)
+    _full_order_Gumbel_PM_size_wrt_error(N+10, M=M * 10, isDense=False)
 
 def _full_order_Gumbel_PM_size_wrt_error(N, M, isDense):
     title = "Dense" if isDense else "Sparse"
-    print(f"\nGumbel trick: Plotting {title} size/error ({N})")
+    print(f"\nGumbel trick: Plotting {title} size/error (n={N})")
 
     if isDense:
         weights = npr.uniform(size=(N,N))
@@ -206,18 +206,18 @@ def _full_order_Gumbel_PM_size_wrt_error(N, M, isDense):
     logZs = []
     for m in range(1,M+1):
         print(m)
-        lnZ = full_order_gumbel_trick(log_weights)[1]
+        lnZ = full_order_gumbel_trick(log_weights, [])[1]
         logZs.append(lnZ)
 
-    I = np.arange(M, dtype=int)+1
-    plt.plot(I, np.repeat(logZ, M), '-', label="ln Z")
-    plt.plot(I, np.cumsum(logZs)/I, '--', label="estimate")
+    I = np.arange(M, dtype=int)
+    plt.plot(I+1, np.repeat(logZ, M), '-', label="ln Z")
+    plt.plot(I+1, np.cumsum(logZs)/I, '--', label="estimate")
 
-    plt.title(f"{title} (n={N})")
+    plt.title(f"{title} (n = {N})")
     plt.xlabel("Number of samples")
 
     plt.legend()
-    plt.savefig(f"full-order-{title}-error.pdf")
+    plt.savefig(f"img/full-order-{title}-error.pdf")
     plt.clf()
 
 
@@ -243,19 +243,19 @@ def _low_order_Gumbel_PM_size_wrt_time(N, isDense):
 
     plt.plot(I, times, label="Estimate")
     plt.plot(I, I**2, label="$x^2$")
-    plt.title("Runtime estimate")
+    plt.title(title)
     plt.xlabel("Matrix dimension (n)")
     plt.ylabel("Time (s)")
     plt.yscale("log")
 
     plt.legend()
-    plt.savefig("low-order-%s-runtime.pdf" % title)
+    plt.savefig("img/low-order-%s-runtime.pdf" % title)
     plt.clf()
 
 
 def low_order_Gumbel_PM_size_wrt_error(N, M):
     _low_order_Gumbel_PM_size_wrt_error(N, M, isDense=True)
-    _low_order_Gumbel_PM_size_wrt_error(N, M, isDense=False)
+    _low_order_Gumbel_PM_size_wrt_error(N, M*10, isDense=False)
 
 def _low_order_Gumbel_PM_size_wrt_error(N, M, isDense):
     """
@@ -280,21 +280,22 @@ def _low_order_Gumbel_PM_size_wrt_error(N, M, isDense):
 
     results = []
     for i in range(M):
-        result = sampler(log_weights, sample_size=1000)
+        result = sampler(log_weights, U)
         results.append(result[-2])
         # upper_bound = result[4]
         if i % 10 == 0:
             print(f"i: {i}")
     rejections = np.array(results)
 
-    I = np.arange(M) + 1
+    I = np.arange(M)
     # log_acceptance_ratio = (rejections_per_run.cumsum() + I) / I
 
     # this is also: 1/acceptance_ratio
     R = rejections.cumsum()
     estimate_log_Z = U + np.log(I) - np.log(R + I)
-    bias = np.abs(actual_logZ - estimate_log_Z.mean())
-    plt.plot(I, estimate_log_Z-bias, ':', color="red", label="estimate")
+
+    # bias = np.abs(actual_logZ - estimate_log_Z.mean())
+    plt.plot(I + 1, estimate_log_Z, '-', color="red", label="estimate")
     plt.plot([1, M], [actual_logZ, actual_logZ], '--', label="log Z")
     plt.plot([1, M], [U, U], '-.', label="upper bound")
 
@@ -302,5 +303,34 @@ def _low_order_Gumbel_PM_size_wrt_error(N, M, isDense):
 
     plt.xlabel("Number of samples")
     plt.legend()
-    plt.savefig("low-order-estimated-permanent-%s.pdf" % title)
+    plt.savefig("img/low-order-estimated-permanent-%s.pdf" % title)
+    plt.clf()
+
+
+def plot_estimation_errors(N=10, M=200):
+    _plot_estimation_error(N, M, isDense=True)
+    _plot_estimation_error(N, M*10, isDense=False)
+
+def _plot_estimation_error(N, M, isDense):
+    """
+    The idea is to plot upper bound as a function of number of samples (M)
+    X-axis: we've got X and on the Y axis we've got E[U(matrix)]
+    """
+
+    if isDense:
+        matrix = npr.uniform(size=(N,N))
+    else:
+        matrix = get_multi_modal_matrix(N, modes=5)
+
+    log_weights = np.log(matrix)
+    U, upper_bounds = get_bounds(log_weights, M)
+
+    indices = np.arange(M)+1
+    plt.plot(indices, (upper_bounds / (indices)), label="upper bound")
+
+    title = "Dense" if isDense else "Sparse"
+    plt.title(f"Upper bound ({title})")
+    plt.xlabel("Number of samples")
+    plt.legend()
+    plt.savefig(f"img/low-order-upper-bound-{title}.pdf")
     plt.clf()

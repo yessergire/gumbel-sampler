@@ -43,7 +43,7 @@ def get_bounds(log_weights, M=50):
 
     upper_bounds = []
     for i in range(M):
-        noise = generate_gumbel_noise((n,n)) # noise for each edge (=2dim)
+        noise = generate_gumbel_noise((n, n))  # noise for each edge (=2dim)
         UPW = log_weights + noise
         try:
             left, right = linear_sum_assignment(UPW, maximize=True)
@@ -63,7 +63,8 @@ def get_distribution(log_weights, samples, sample_size, upperbound=None):
     I = set(range(N))
     sample_from = I - set(samples)
     if upperbound is None:
-        upperbound, _ = get_bounds(log_weights[j:, list(sample_from)], sample_size)
+        upperbound, _ = get_bounds(
+            log_weights[j:, list(sample_from)], sample_size)
 
     for v in sample_from:
         s = list(sample_from - {v})
@@ -85,6 +86,7 @@ def sampler(log_weights, upper_bound=None, sample_size=10):
     if upper_bound is None:
         upper_bound, _ = get_bounds(log_weights, sample_size)
 
+    # probs = [-1]
     c = 0
     while len(samples) < N:
         c += 1
@@ -96,13 +98,18 @@ def sampler(log_weights, upper_bound=None, sample_size=10):
         else:
             U = None
 
+        # while probs[-1] <= 0:
         probs, U = get_distribution(log_weights, samples, sample_size, U)
-        # uSumE += upper
+        #     # uSumE += upper
 
         if probs[-1] < 0:
+            #     c -= 1
+            #     if len(samples) == 0:
+            #         iterations -= 1
+            #     continue
             neg += 1
-            probs[-1] = 0
-            probs=probs/np.sum(probs)
+            probs[-1] = 1e-6
+            probs = probs/np.sum(probs)
 
         sample_id = npr.choice(range(len(probs)), p=probs)
 
@@ -124,8 +131,9 @@ def full_order_gumbel_trick(log_weights, samples):
     results = []
     if i < n:
         for j in range(n):
-            if j in samples: continue
-            if np.isfinite(log_weights[i,j]):
+            if j in samples:
+                continue
+            if np.isfinite(log_weights[i, j]):
                 result_j = full_order_gumbel_trick(log_weights, samples + [j])
                 if len(result_j) > 0:
                     results.append(result_j)
